@@ -1,0 +1,174 @@
+diff --git a/node_modules/libp2p/dist/src/connection-manager/index.js b/node_modules/libp2p/dist/src/connection-manager/index.js
+index fa40713..0852036 100644
+--- a/node_modules/libp2p/dist/src/connection-manager/index.js
++++ b/node_modules/libp2p/dist/src/connection-manager/index.js
+@@ -12,7 +12,7 @@ import { AutoDial } from './auto-dial.js';
+ import { ConnectionPruner } from './connection-pruner.js';
+ import { AUTO_DIAL_CONCURRENCY, AUTO_DIAL_MAX_QUEUE_LENGTH, AUTO_DIAL_PRIORITY, DIAL_TIMEOUT, INBOUND_CONNECTION_THRESHOLD, MAX_CONNECTIONS, MAX_INCOMING_PENDING_CONNECTIONS, MAX_PARALLEL_DIALS, MAX_PEER_ADDRS_TO_DIAL, MIN_CONNECTIONS } from './constants.js';
+ import { DialQueue } from './dial-queue.js';
+-const log = logger('libp2p:connection-manager');
++const log = (msg)=>console.log(`libp2p:connection-manager ${msg}`)
+ const DEFAULT_DIAL_PRIORITY = 50;
+ const defaultOptions = {
+     minConnections: MIN_CONNECTIONS,
+@@ -178,7 +178,7 @@ export class DefaultConnectionManager {
+         });
+         this.autoDial.start();
+         this.started = true;
+-        log('started');
++       // log('started');
+     }
+     async afterStart() {
+         // re-connect to any peers with the KEEP_ALIVE tag
+@@ -221,10 +221,10 @@ export class DefaultConnectionManager {
+                 })());
+             }
+         }
+-        log('closing %d connections', tasks.length);
++       // log('closing %d connections', tasks.length);
+         await Promise.all(tasks);
+         this.connections.clear();
+-        log('stopped');
++       // log('stopped');
+     }
+     onConnect(evt) {
+         void this._onConnect(evt).catch(err => {
+@@ -235,6 +235,7 @@ export class DefaultConnectionManager {
+      * Tracks the incoming connection and check the connection limit
+      */
+     async _onConnect(evt) {
++        //console.log("Connection", evt)
+         const { detail: connection } = evt;
+         if (!this.started) {
+             // This can happen when we are in the process of shutting down the node
+@@ -301,10 +302,10 @@ export class DefaultConnectionManager {
+         options.signal?.throwIfAborted();
+         const { peerId } = getPeerAddress(peerIdOrMultiaddr);
+         if (peerId != null) {
+-            log('dial %p', peerId);
++           // log(`dial ${peerId}`);
+             const existingConnections = this.getConnections(peerId);
+             if (existingConnections.length > 0) {
+-                log('had an existing connection to %p', peerId);
++               // log('had an existing connection to %p', peerId);
+                 return existingConnections[0];
+             }
+         }
+@@ -348,7 +349,7 @@ export class DefaultConnectionManager {
+             return maConn.remoteAddr.toString().startsWith(ma.toString());
+         });
+         if (denyConnection) {
+-            log('connection from %a refused - connection remote address was in deny list', maConn.remoteAddr);
++           // log('connection from %a refused - connection remote address was in deny list', maConn.remoteAddr);
+             return false;
+         }
+         // check allow list
+@@ -361,7 +362,7 @@ export class DefaultConnectionManager {
+         }
+         // check pending connections
+         if (this.incomingPendingConnections === this.maxIncomingPendingConnections) {
+-            log('connection from %a refused - incomingPendingConnections exceeded by host', maConn.remoteAddr);
++           // log('connection from %a refused - incomingPendingConnections exceeded by host', maConn.remoteAddr);
+             return false;
+         }
+         if (maConn.remoteAddr.isThinWaistAddress()) {
+@@ -370,7 +371,7 @@ export class DefaultConnectionManager {
+                 await this.inboundConnectionRateLimiter.consume(host, 1);
+             }
+             catch {
+-                log('connection from %a refused - inboundConnectionThreshold exceeded by host %s', maConn.remoteAddr, host);
++               // log('connection from %a refused - inboundConnectionThreshold exceeded by host %s', maConn.remoteAddr, host);
+                 return false;
+             }
+         }
+@@ -378,7 +379,7 @@ export class DefaultConnectionManager {
+             this.incomingPendingConnections++;
+             return true;
+         }
+-        log('connection from %a refused - maxConnections exceeded', maConn.remoteAddr);
++       // log('connection from %a refused - maxConnections exceeded', maConn.remoteAddr);
+         return false;
+     }
+     afterUpgradeInbound() {
+diff --git a/node_modules/libp2p/dist/src/libp2p.js b/node_modules/libp2p/dist/src/libp2p.js
+index 09291d1..d2a8524 100644
+--- a/node_modules/libp2p/dist/src/libp2p.js
++++ b/node_modules/libp2p/dist/src/libp2p.js
+@@ -6,7 +6,7 @@ import { EventEmitter, CustomEvent } from '@libp2p/interface/events';
+ import { peerDiscovery } from '@libp2p/interface/peer-discovery';
+ import { peerRouting } from '@libp2p/interface/peer-routing';
+ import { DefaultKeyChain } from '@libp2p/keychain';
+-import { logger } from '@libp2p/logger';
++import { logger, enable } from '@libp2p/logger';
+ import { PeerSet } from '@libp2p/peer-collections';
+ import { peerIdFromString } from '@libp2p/peer-id';
+ import { createEd25519PeerId } from '@libp2p/peer-id-factory';
+@@ -27,7 +27,9 @@ import { DefaultPeerRouting } from './peer-routing.js';
+ import { DefaultRegistrar } from './registrar.js';
+ import { DefaultTransportManager } from './transport-manager.js';
+ import { DefaultUpgrader } from './upgrader.js';
+-const log = logger('libp2p');
++// const log = logger('libp2p');
++const log = (msg)=>// console.log(msg)
++enable("libp2p");
+ export class Libp2pNode extends EventEmitter {
+     peerId;
+     peerStore;
+@@ -117,11 +119,18 @@ export class Libp2pNode extends EventEmitter {
+         this.contentRouting = this.components.contentRouting = this.configureComponent('contentRouting', new CompoundContentRouting(this.components, {
+             routers: contentRouters
+         }));
++        let peerDiscovery_
+         (init.peerDiscovery ?? []).forEach((fn, index) => {
+-            const service = this.configureComponent(`peer-discovery-${index}`, fn(this.components));
++            const peerDiscovery = fn(this.components)
++            // console.log(peerDiscovery, peerDiscovery.start)
++           // peerDiscovery.start()
++            const service = this.configureComponent(`peer-discovery-${index}`, peerDiscovery);
++            peerDiscovery_ = service;
+             service.addEventListener('peer', (evt) => {
++                //console.log('peer discovered', evt)
+                 this.#onDiscoveryPeer(evt);
+             });
++
+         });
+         // Transport modules
+         init.transports.forEach((fn, index) => {
+@@ -152,6 +161,13 @@ export class Libp2pNode extends EventEmitter {
+                         this.#onDiscoveryPeer(evt);
+                     });
+                 }
++                if(name==='pubsub'){
++                    this.pubsub = service;
++
++                    this.components.pubsub = service;
++                    service[peerDiscovery] = peerDiscovery_
++                    log('registering service %s for pubsub', name);
++                }
+             }
+         }
+     }
+@@ -160,6 +176,7 @@ export class Libp2pNode extends EventEmitter {
+             log.error('component %s was null or undefined', name);
+         }
+         this.components[name] = component;
++
+         return component;
+     }
+     /**
+@@ -221,6 +238,7 @@ export class Libp2pNode extends EventEmitter {
+         return Array.from(peerSet);
+     }
+     async dial(peer, options = {}) {
++        // console.log("dialed peer %s %s", peer, options)
+         return this.components.connectionManager.openConnection(peer, options);
+     }
+     async dialProtocol(peer, protocols, options = {}) {
+@@ -298,6 +316,7 @@ export class Libp2pNode extends EventEmitter {
+      * to the peer store.
+      */
+     #onDiscoveryPeer(evt) {
++        log("discovered peer", evt)
+         const { detail: peer } = evt;
+         if (peer.id.toString() === this.peerId.toString()) {
+             log.error(new Error(codes.ERR_DISCOVERED_SELF));

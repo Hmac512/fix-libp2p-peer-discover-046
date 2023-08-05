@@ -1,0 +1,249 @@
+diff --git a/node_modules/@chainsafe/libp2p-gossipsub/dist/src/index.js b/node_modules/@chainsafe/libp2p-gossipsub/dist/src/index.js
+index c0d60af..40da4c3 100644
+--- a/node_modules/@chainsafe/libp2p-gossipsub/dist/src/index.js
++++ b/node_modules/@chainsafe/libp2p-gossipsub/dist/src/index.js
+@@ -1,6 +1,6 @@
+ import { pipe } from 'it-pipe';
+ import { peerIdFromBytes, peerIdFromString } from '@libp2p/peer-id';
+-import { logger } from '@libp2p/logger';
++import { enable, logger } from '@libp2p/logger';
+ import { CustomEvent, EventEmitter } from '@libp2p/interface/events';
+ import { MessageCache } from './message-cache.js';
+ import { RPC } from './message/rpc.js';
+@@ -188,6 +188,7 @@ export class GossipSub extends EventEmitter {
+         }
+         // From pubsub
+         this.log = logger(opts.debugName ?? 'libp2p:gossipsub');
++        enable('libp2p:gossipsub')
+         // Gossipsub
+         this.opts = opts;
+         this.direct = new Set(opts.directPeers.map((p) => p.id.toString()));
+@@ -251,7 +252,8 @@ export class GossipSub extends EventEmitter {
+         this.allowedTopics = opts.allowedTopics ? new Set(opts.allowedTopics) : null;
+     }
+     getPeers() {
+-        return [...this.peers.keys()].map((str) => peerIdFromString(str));
++        return this.components.connectionManager.getConnections()
++       // return [...this.peers.keys()].map((str) => peerIdFromString(str));
+     }
+     isStarted() {
+         return this.status.code === GossipStatusCode.started;
+@@ -273,6 +275,7 @@ export class GossipSub extends EventEmitter {
+         this.outboundInflightQueue = pushable({ objectMode: true });
+         pipe(this.outboundInflightQueue, async (source) => {
+             for await (const { peerId, connection } of source) {
++                // console.log("Outbound connection")
+                 await this.createOutboundStream(peerId, connection);
+             }
+         }).catch((e) => this.log.error('outbound inflight queue error', e));
+@@ -311,7 +314,10 @@ export class GossipSub extends EventEmitter {
+             onConnect: this.onPeerConnected.bind(this),
+             onDisconnect: this.onPeerDisconnected.bind(this)
+         };
+-        const registrarTopologyIds = await Promise.all(this.multicodecs.map((multicodec) => registrar.register(multicodec, topology)));
++        const registrarTopologyIds = await Promise.all(this.multicodecs.map((multicodec) => {
++           // this.log('registering %s %s', multicodec, topology)
++            return registrar.register(multicodec, topology)
++        }));
+         // Schedule to start heartbeat after `GossipsubHeartbeatInitialDelay`
+         const heartbeatTimeout = setTimeout(this.runHeartbeat, constants.GossipsubHeartbeatInitialDelay);
+         // Then, run heartbeat every `heartbeatInterval` offset by `GossipsubHeartbeatInitialDelay`
+@@ -406,6 +412,7 @@ export class GossipSub extends EventEmitter {
+      * Registrar notifies an established connection with pubsub protocol
+      */
+     onPeerConnected(peerId, connection) {
++        // console.log('connection established %p', peerId)
+         this.metrics?.newConnectionCount.inc({ status: connection.status });
+         // libp2p may emit a closed connection and never issue peer:disconnect event
+         // see https://github.com/ChainSafe/js-libp2p-gossipsub/issues/398
+@@ -423,13 +430,14 @@ export class GossipSub extends EventEmitter {
+         this.removePeer(peerId);
+     }
+     async createOutboundStream(peerId, connection) {
++        // console.log("Create outbound stream", peerId, connection)
+         if (!this.isStarted()) {
+             return;
+         }
+         const id = peerId.toString();
+-        if (!this.peers.has(id)) {
+-            return;
+-        }
++        // if (!this.peers.has(id)) {
++        //     return;
++        // }
+         // TODO make this behavior more robust
+         // This behavior is different than for inbound streams
+         // If an outbound stream already exists, don't create a new stream
+@@ -437,8 +445,8 @@ export class GossipSub extends EventEmitter {
+             return;
+         }
+         try {
+-            const stream = new OutboundStream(await connection.newStream(this.multicodecs), (e) => this.log.error('outbound pipe error', e), { maxBufferSize: this.opts.maxOutboundBufferSize });
+-            this.log('create outbound stream %p', peerId);
++            const stream = new OutboundStream(await connection.newStream(this.multicodecs), (e) => console.error('outbound pipe error', e), { maxBufferSize: this.opts.maxOutboundBufferSize });
++            // console.log('create outbound stream %p', peerId);
+             this.streamsOutbound.set(id, stream);
+             const protocol = stream.protocol;
+             if (protocol === constants.FloodsubID) {
+@@ -447,12 +455,12 @@ export class GossipSub extends EventEmitter {
+             this.metrics?.peersPerProtocol.inc({ protocol }, 1);
+             // Immediately send own subscriptions via the newly attached stream
+             if (this.subscriptions.size > 0) {
+-                this.log('send subscriptions to', id);
++                // console.log('send subscriptions to', id);
+                 this.sendSubscriptions(id, Array.from(this.subscriptions), true);
+             }
+         }
+         catch (e) {
+-            this.log.error('createOutboundStream error', e);
++            console.error('createOutboundStream error', e);
+         }
+     }
+     async createInboundStream(peerId, stream) {
+@@ -481,6 +489,7 @@ export class GossipSub extends EventEmitter {
+      * Add a peer to the router
+      */
+     addPeer(peerId, direction, addr) {
++        // console.log('add peer %p', peerId);
+         const id = peerId.toString();
+         if (!this.peers.has(id)) {
+             this.log('new peer %p', peerId);
+@@ -625,6 +634,7 @@ export class GossipSub extends EventEmitter {
+      * to for testing purposes to spy on the error handling
+      * */
+     handlePeerReadStreamError(err, peerId) {
++        console.error(err, peerId)
+         this.log.error(err);
+         this.onPeerDisconnected(peerId);
+     }
+@@ -632,6 +642,7 @@ export class GossipSub extends EventEmitter {
+      * Handles an rpc request from a peer
+      */
+     async handleReceivedRpc(from, rpc) {
++        this.log('received rpc from %p', from);
+         // Check if peer is graylisted in which case we ignore the event
+         if (!this.acceptFrom(from.toString())) {
+             this.log('received message from unacceptable peer %p', from);
+@@ -705,7 +716,7 @@ export class GossipSub extends EventEmitter {
+      * Handles a subscription change from a peer
+      */
+     handleReceivedSubscription(from, topic, subscribe) {
+-        this.log('subscription update from %p topic %s', from, topic);
++        //// console.log('subscription update from %p topic %s', from, topic);
+         let topicSet = this.topics.get(topic);
+         if (topicSet == null) {
+             topicSet = new Set();
+@@ -726,6 +737,7 @@ export class GossipSub extends EventEmitter {
+      * May forward to all peers in the mesh.
+      */
+     async handleReceivedMessage(from, rpcMsg) {
++        //console.log('handleReceivedMessage', from);
+         this.metrics?.onMsgRecvPreValidation(rpcMsg.topic);
+         const validationResult = await this.validateReceivedMessage(from, rpcMsg);
+         this.metrics?.onMsgRecvResult(rpcMsg.topic, validationResult.code);
+@@ -791,6 +803,7 @@ export class GossipSub extends EventEmitter {
+      * May forward to all peers in the mesh.
+      */
+     async validateReceivedMessage(propagationSource, rpcMsg) {
++
+         // Fast message ID stuff
+         const fastMsgIdStr = this.fastMsgIdFn?.(rpcMsg);
+         const msgIdCached = fastMsgIdStr !== undefined ? this.fastMsgIdCache?.get(fastMsgIdStr) : undefined;
+@@ -864,12 +877,14 @@ export class GossipSub extends EventEmitter {
+      * Return score of a peer.
+      */
+     getScore(peerId) {
++        this.log('getScore', this.score.score(peerId));
+         return this.score.score(peerId);
+     }
+     /**
+      * Send an rpc object to a peer with subscriptions
+      */
+     sendSubscriptions(toPeer, topics, subscribe) {
++        this.log('sendSubscriptions', toPeer, topics, subscribe);
+         this.sendRpc(toPeer, {
+             subscriptions: topics.map((topic) => ({ topic, subscribe }))
+         });
+@@ -903,6 +918,7 @@ export class GossipSub extends EventEmitter {
+      * Whether to accept a message from a peer
+      */
+     acceptFrom(id) {
++        this.log("Accept",id)
+         if (this.direct.has(id)) {
+             return true;
+         }
+@@ -1276,13 +1292,24 @@ export class GossipSub extends EventEmitter {
+     /**
+      * Subscribes to a topic
+      */
+-    subscribe(topic) {
++    async subscribe(topic) {
++        // console.log("subscribe", topic)
+         if (this.status.code !== GossipStatusCode.started) {
++            console.error("Pubsub has not started")
+             throw new Error('Pubsub has not started');
+         }
+         if (!this.subscriptions.has(topic)) {
+             this.subscriptions.add(topic);
+-            for (const peerId of this.peers.keys()) {
++            const peerSet = []
++            for (const conn of this.components.connectionManager.getConnections()) {
++                this.createOutboundStream(conn.remotePeer, conn);
++
++
++                peerSet.push(conn.remotePeer);
++
++            }
++            for (const peerId of peerSet) {
++                this.log("sending subscription to peers", peerId, topic)
+                 this.sendSubscriptions(peerId, [topic], true);
+             }
+         }
+@@ -1418,6 +1445,7 @@ export class GossipSub extends EventEmitter {
+             fanout: 0
+         };
+         const peersInTopic = this.topics.get(topic);
++        // console.log("Peers in topic: ", peersInTopic, this.topics);
+         if (peersInTopic) {
+             // flood-publish behavior
+             // send to direct peers and _all_ peers meeting the publishThreshold
+@@ -1518,6 +1546,7 @@ export class GossipSub extends EventEmitter {
+      * For messages not from us, this class uses `forwardMessage`.
+      */
+     async publish(topic, data, opts) {
++        //console.log("Publish", topic, opts)
+         const startMs = Date.now();
+         const transformedData = this.dataTransform ? this.dataTransform.outboundTransform(topic, data) : data;
+         if (this.publishConfig == null) {
+@@ -1556,6 +1585,7 @@ export class GossipSub extends EventEmitter {
+         // Send to set of peers aggregated from direct, mesh, fanout
+         for (const id of tosend) {
+             // sendRpc may mutate RPC message on piggyback, create a new message for each peer
++            //console.log("Sending to", id)
+             const sent = this.sendRpc(id, { messages: [rawMsg] });
+             // did not actually send the message
+             if (!sent) {
+@@ -1575,6 +1605,7 @@ export class GossipSub extends EventEmitter {
+                 }
+             }));
+             // TODO: Add option to switch between emit per topic or all messages in one
++
+             super.dispatchEvent(new CustomEvent('message', { detail: msg }));
+         }
+         return {
+@@ -1657,6 +1688,7 @@ export class GossipSub extends EventEmitter {
+      */
+     sendRpc(id, rpc) {
+         const outboundStream = this.streamsOutbound.get(id);
++        //// console.log('sendRpc', id, rpc, outboundStream)
+         if (!outboundStream) {
+             this.log(`Cannot send RPC to ${id} as there is no open stream to it available`);
+             return false;
+@@ -1743,6 +1775,7 @@ export class GossipSub extends EventEmitter {
+             this.sendRpc(id, { control: { graft, prune } });
+         }
+         for (const [id, topics] of toprune) {
++
+             const prune = await Promise.all(topics.map(async (topicID) => await this.makePrune(id, topicID, doPX && !(noPX.get(id) ?? false), onUnsubscribe)));
+             this.sendRpc(id, { control: { prune } });
+         }

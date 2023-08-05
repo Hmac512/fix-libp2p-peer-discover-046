@@ -1,0 +1,69 @@
+diff --git a/node_modules/@libp2p/pubsub-peer-discovery/dist/src/index.js b/node_modules/@libp2p/pubsub-peer-discovery/dist/src/index.js
+index af5f264..15337b7 100644
+--- a/node_modules/@libp2p/pubsub-peer-discovery/dist/src/index.js
++++ b/node_modules/@libp2p/pubsub-peer-discovery/dist/src/index.js
+@@ -1,10 +1,11 @@
+-import { logger } from '@libp2p/logger';
++import { logger, enable } from '@libp2p/logger';
+ import { CustomEvent, EventEmitter } from '@libp2p/interfaces/events';
+ import { multiaddr } from '@multiformats/multiaddr';
+ import { Peer as PBPeer } from './peer.js';
+ import { peerIdFromKeys } from '@libp2p/peer-id';
+ import { symbol } from '@libp2p/interface-peer-discovery';
+ const log = logger('libp2p:discovery:pubsub');
++enable('libp2p:discovery:pubsub')
+ export const TOPIC = '_peer-discovery._p2p._pubsub';
+ /**
+  * A Peer Discovery Service that leverages libp2p Pubsub to find peers.
+@@ -50,8 +51,12 @@ export class PubSubPeerDiscovery extends EventEmitter {
+         }
+         // Subscribe to pubsub
+         for (const topic of this.topics) {
++            // console.log('subscribing to topic %s', topic);
+             pubsub.subscribe(topic);
+-            pubsub.addEventListener('message', this._onMessage);
++            pubsub.addEventListener('message', (message)=>{
++                //console.log('message received', message);
++                this._onMessage(message);
++            });
+         }
+         // Don't broadcast if we are only listening
+         if (this.listenOnly) {
+@@ -87,6 +92,7 @@ export class PubSubPeerDiscovery extends EventEmitter {
+      * Performs a broadcast via Pubsub publish
+      */
+     _broadcast() {
++
+         const peerId = this.components.peerId;
+         if (peerId.publicKey == null) {
+             throw new Error('PeerId was missing public key');
+@@ -101,7 +107,7 @@ export class PubSubPeerDiscovery extends EventEmitter {
+             throw new Error('PubSub not configured');
+         }
+         for (const topic of this.topics) {
+-            log('broadcasting our peer data on topic %s', topic);
++            // console.log(`broadcasting our peer data on topic ${topic} ${this.components.addressManager.getAddresses()}`);
+             void pubsub.publish(topic, encodedPeer);
+         }
+     }
+@@ -109,9 +115,11 @@ export class PubSubPeerDiscovery extends EventEmitter {
+      * Handles incoming pubsub messages for our discovery topic
+      */
+     _onMessage(event) {
++        //console.log(`received message on topic ${event}`)
+         if (!this.isStarted()) {
+             return;
+         }
++        // console.log('received message on topic %s', event);
+         const message = event.detail;
+         if (!this.topics.includes(message.topic)) {
+             return;
+@@ -122,7 +130,7 @@ export class PubSubPeerDiscovery extends EventEmitter {
+             if (peerId.equals(this.components.peerId)) {
+                 return;
+             }
+-            log('discovered peer %p on %s', peerId, message.topic);
++            //console.log(`discovered peer ${peerId} on ${message.topic}`);
+             this.dispatchEvent(new CustomEvent('peer', {
+                 detail: {
+                     id: peerId,
