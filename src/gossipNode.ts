@@ -269,7 +269,7 @@ const main = async () => {
     );
 
     console.log(publishResult);
-    await sleep(3000);
+
     let i = 1;
     for (const vs of [...Array(10)]) {
       console.log("Round", i);
